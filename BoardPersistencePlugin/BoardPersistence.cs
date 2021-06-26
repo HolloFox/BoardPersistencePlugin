@@ -10,9 +10,9 @@ namespace HolloFoxes
     public partial class BoardPersistence : BaseUnityPlugin
     {
         // Plugin info
-        public const string Name = "Board Persistence Plug-In";
+        public const string Name = "HolloFoxes' Board Persistence Plug-In";
         public const string Guid = "org.hollofox.plugins.boardpersistence";
-        public const string Version = "1.0.0.0";
+        public const string Version = "1.0.1.0";
 
         // Prevent multiple sources from modifying data at once
         private static object exclusionLock = new object();

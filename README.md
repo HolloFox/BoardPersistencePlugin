@@ -57,6 +57,7 @@ Build the project.
 Browse to the newly created ```bin/Debug``` or ```bin/Release``` folders and copy the ```BoardPersistencePlugin.dll``` to ```Steam\steamapps\common\TaleSpire\BepInEx\plugins```
 
 ## Changelog
+1.0.1: Bump, Add Tags for ThunderStore
 1.0.0: Initial release
 
 ## Shoutouts
