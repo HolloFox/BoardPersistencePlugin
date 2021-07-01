@@ -57,13 +57,15 @@ Build the project.
 Browse to the newly created ```bin/Debug``` or ```bin/Release``` folders and copy the ```BoardPersistencePlugin.dll``` to ```Steam\steamapps\common\TaleSpire\BepInEx\plugins```
 
 ## Changelog
-1.0.1: Bump, Add Tags for ThunderStore
-1.0.0: Initial release
+- 2.0.0: Moved storage location to Board.Description (Max 150 -> 400 bytes)
+- 1.0.1: Bump, Add Tags for ThunderStore
+- 1.0.0: Initial release
 
 ## Shoutouts
 Shoutout to my Patreons on https://www.patreon.com/HolloFox recognising your
 mighty contribution to my caffeine addiciton:
 - John Fuller
+- Don Cole
 
 This plugin was modified from LordAshes's StatMessaging Plugin.
 Instead of being oriented on a mini, data is oriented on a board.
