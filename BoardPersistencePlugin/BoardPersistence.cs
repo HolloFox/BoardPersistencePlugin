@@ -3,6 +3,8 @@ using Newtonsoft.Json;
 using UnityEngine;
 using System;
 using System.Collections.Generic;
+using System.Reflection;
+using BRClient;
 
 namespace HolloFoxes
 {
@@ -12,7 +14,7 @@ namespace HolloFoxes
         // Plugin info
         public const string Name = "HolloFoxes' Board Persistence Plug-In";
         public const string Guid = "org.hollofox.plugins.boardpersistence";
-        public const string Version = "1.0.1.0";
+        public const string Version = "2.0.0.0";
 
         // Prevent multiple sources from modifying data at once
         private static object exclusionLock = new object();
@@ -122,15 +124,32 @@ namespace HolloFoxes
             // Minimize race conditions
             lock (exclusionLock)
             {
-                // Extract the JSON portion of the name
-                var boardName = BoardSessionManager.CurrentBoardInfo.BoardName;
-                string json = boardName.Substring(boardName.IndexOf("<size=0>") + "<size=0>".Length);
-                // Convert to a dictionary
-                Dictionary<string, string> info = JsonConvert.DeserializeObject<Dictionary<string, string>>(json);
-                // Modify or add the specified value under the specified key
-                if (info.ContainsKey(key)) { info[key] = value; } else { info.Add(key, value); }
-                // Update character name
-                BoardSessionManager.RenameBoard(boardName.Substring(0, boardName.IndexOf("<size=0>") + "<size=0>".Length) + JsonConvert.SerializeObject(info));
+                try
+                {
+                    // Extract the JSON portion of the name
+                    var boardName = BoardSessionManager.CurrentBoardInfo.Description;
+                    string json = boardName.Substring(boardName.IndexOf("<>") + "<>".Length);
+                    // Convert to a dictionary
+                    Dictionary<string, string> info = JsonConvert.DeserializeObject<Dictionary<string, string>>(json);
+                    // Modify or add the specified value under the specified key
+                    if (info.ContainsKey(key))
+                    {
+                        info[key] = value;
+                    }
+                    else
+                    {
+                        info.Add(key, value);
+                    }
+
+                    // Update character name
+                    UpdateBoardDescription(boardName.Substring(0, boardName.IndexOf("<>") + "<>".Length) +
+                                           JsonConvert.SerializeObject(info));
+                }
+                catch
+                {
+                    // Clear on corruption
+                    UpdateBoardDescription("");
+                }
             }
         }
 
@@ -144,16 +163,45 @@ namespace HolloFoxes
             // Minimize race conditions
             lock (exclusionLock)
             {
-                var boardName = BoardSessionManager.CurrentBoardInfo.BoardName;
+                var boardName = BoardSessionManager.CurrentBoardInfo.Description;
                 // Extract the JSON portion of the name
-                string json = boardName.Substring(boardName.IndexOf("<size=0>") + "<size=0>".Length);
+                string json = boardName.Substring(boardName.IndexOf("<>") + "<>".Length);
                     // Convert to a dictionary
                 Dictionary<string, string> info = JsonConvert.DeserializeObject<Dictionary<string, string>>(json);
                 // Remove the key if it exists
                 if (info.ContainsKey(key)) { info.Remove(key); }
                 // Update character name
-                BoardSessionManager.RenameBoard(boardName.Substring(0, boardName.IndexOf("<size=0>") + "<size=0>".Length) + JsonConvert.SerializeObject(info));
+                UpdateBoardDescription(boardName.Substring(0, boardName.IndexOf("<>") + "<>".Length) + JsonConvert.SerializeObject(info));
             }
+        }
+
+        private const BindingFlags bindFlags = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static;
+
+        public static void UpdateBoardDescription(string description)
+        {
+            if (!LocalPlayer.Rights.CanGm)
+                return;
+            int retries = 3;
+            Api3.BoardUpdateInfo(BoardSessionManager.CurrentBoardInfo.BoardName, BoardSessionManager.CurrentBoardInfo.Id.Value, description, (System.Action<Api3BoardUpdateInfoResponse>)(resp =>
+            {
+                if (resp.ResCode == 0)
+                {
+                    BoardSessionManager.CurrentBoardInfo = new BoardInfo(BoardSessionManager.CurrentBoardInfo.Id, BoardSessionManager.CurrentBoardInfo.CampaignId, BoardSessionManager.CurrentBoardInfo.BoardName, description, BoardSessionManager.CurrentBoardInfo.Version);
+
+                    Type classType = typeof(BoardSessionManager);
+                    MethodInfo mi = classType.GetMethod("SendNewBoardInfoToOtherClients",
+                        BindingFlags.Instance | BindingFlags.NonPublic);
+                    mi.Invoke(BoardSessionManager.Instance, new object[] { BoardSessionManager.CurrentBoardInfo });
+
+                    // BoardSessionManager.OnBoardInfoChanged(BoardSessionManager.CurrentBoardInfo);
+                }
+                else
+                    SystemMessage.DisplayInfoText("Update Description", 4f);
+            }), (System.Action<Exception>)(e => SystemMessage.DisplayInfoText("Update Description request failed", 4f)), (Func<WsRequestFailure, bool>)(we =>
+            {
+                --retries;
+                return retries >= 0;
+            }));
         }
 
         /// <summary>
@@ -169,7 +217,7 @@ namespace HolloFoxes
             lock (exclusionLock)
             { 
                string json = data;
-               json = json.Substring(json.IndexOf("<size=0>") + "<size=0>".Length);
+               json = json.Substring(json.IndexOf("<>") + "<>".Length);
                Dictionary<string, string> keys = JsonConvert.DeserializeObject<Dictionary<string, string>>(json);
                if (keys.ContainsKey(key))
                {
@@ -201,8 +249,9 @@ namespace HolloFoxes
         /// <returns>String representation of the creature name</returns>
         public static string GetBoardName()
         {
-            string name = BoardSessionManager.CurrentBoardInfo.BoardName;
-            if (name.Contains("<size=0>")) { name = name.Substring(0, name.IndexOf("<size=0>")).Trim(); }
+            string name = BoardSessionManager.CurrentBoardInfo.Description;
+            if (name.Contains("<>")) { name = name.Substring(0, name.IndexOf("<>")).Trim(); }
+            Debug.Log(name);
             return name;
         }
 
@@ -211,7 +260,7 @@ namespace HolloFoxes
         /// </summary>
         private static void StatMessagingCheck()
         {
-            if (string.IsNullOrWhiteSpace(data)) data = BoardSessionManager.CurrentBoardInfo.BoardName;
+            if (string.IsNullOrWhiteSpace(data)) data = BoardSessionManager.CurrentBoardInfo.Description;
             if (checkInProgress) { return; }
 
             // Prevent overlapping checks (in case checks are taking too long)
@@ -221,14 +270,14 @@ namespace HolloFoxes
             {
                 // Check all creatures
                 // Read the creature name into a string. Routine will use this because setting name takes time (i.e. is not reflected immediately).
-                string boardName = BoardSessionManager.CurrentBoardInfo.BoardName;
+                string boardName = BoardSessionManager.CurrentBoardInfo.Description;
 
                 // Ensure creature has a JSON Block
-                if (!boardName.Contains("<size=0>"))
+                if (!boardName.Contains("<>"))
                 {
                     Debug.Log("Appending size because '" + GetBoardName() + "' This is probably a new board.");
-                    BoardSessionManager.RenameBoard(boardName + "<size=0>{}");
-                    boardName = boardName + "<size=0>{}";
+                    UpdateBoardDescription(boardName + "<>{}");
+                    boardName = boardName + "<>{}";
                     data = boardName;
                 }
 
@@ -236,8 +285,8 @@ namespace HolloFoxes
                 if (boardName != data)
                 {
                     // Extract JSON ending
-                    string lastJson = data.Substring(data.IndexOf("<size=0>") + "<size=0>".Length);
-                    string currentJson = boardName.Substring(boardName.IndexOf("<size=0>") + "<size=0>".Length);
+                    string lastJson = data.Substring(data.IndexOf("<>") + "<>".Length);
+                    string currentJson = boardName.Substring(boardName.IndexOf("<>") + "<>".Length);
                     // Compare entries
                     Dictionary<string, string> last = JsonConvert.DeserializeObject<Dictionary<string, string>>(lastJson);
                     Dictionary<string, string> current = JsonConvert.DeserializeObject<Dictionary<string, string>>(currentJson);
